@@ -117,8 +117,11 @@ def search_by_audio(audio_bytes: bytes, top_k: int = 5) -> List[Dict]:
       audio bytes → float32 array → Whisper encoder → embedding 768-dim
           → similarité cosinus FAISS → top-k segments + métadonnées SQLite
     """
-    # 1. Charger l'audio
-    audio, sr = load_audio_bytes(audio_bytes, target_sr=16000)
+    # 1. Charger l'audio avec librosa (même pipeline que module2)
+    import librosa, io as _io
+    audio, sr = librosa.load(_io.BytesIO(audio_bytes), sr=16000, mono=True)
+    peak = max(abs(audio).max(), 1e-8)
+    audio = (audio / peak * 0.95).astype('float32')
 
     # 2. Encoder avec Whisper
     embedder = load_whisper_embedder()
@@ -317,7 +320,7 @@ acoustiquement proches
 
         with col_q:
             query = st.text_input(
-                "", label_visibility="collapsed",
+                "Requête", label_visibility="collapsed",
                 placeholder="koom  /  ned sãame  /  maladie village  /  baag"
             )
         with col_btn:

@@ -1,15 +1,8 @@
 """
-COMPOSANT ENREGISTREMENT AUDIO — CITADEL 2026 (v2)
+COMPOSANT ENREGISTREMENT AUDIO — CITADEL 2026 (v3)
 ===================================================
-Gère l'entrée audio via :
-  1. Upload fichier (WAV/MP3/OGG/FLAC)
-  2. Enregistrement micro via audio-recorder-streamlit
-
-Usage :
-    from audio_recorder import render_audio_input, load_audio_bytes
-    audio_bytes = render_audio_input()
-    if audio_bytes:
-        audio, sr = load_audio_bytes(audio_bytes)
+Utilise librosa.load directement (même pipeline que module2)
+pour garantir que les embeddings Whisper sont identiques.
 """
 
 import io
@@ -18,33 +11,23 @@ from typing import Optional, Tuple
 
 
 def load_audio_bytes(audio_bytes: bytes, target_sr: int = 16000) -> Tuple[np.ndarray, int]:
-    """Charge bytes audio → array numpy float32 mono à target_sr Hz."""
-    import soundfile as sf
+    """
+    Charge bytes audio → float32 mono à target_sr Hz.
+    Utilise librosa.load exactement comme module2_embeddings.py
+    pour garantir des embeddings identiques à ceux du corpus indexé.
+    """
+    import librosa
 
     buf = io.BytesIO(audio_bytes)
-    try:
-        audio, sr = sf.read(buf, dtype='float32', always_2d=False)
-    except Exception:
-        import librosa
-        buf.seek(0)
-        audio, sr = librosa.load(buf, sr=None, mono=True)
+    # Même appel exact que dans module1_ingestion.py load_audio()
+    audio, sr = librosa.load(buf, sr=target_sr, mono=True)
 
-    # Mono
-    if audio.ndim == 2:
-        audio = audio.mean(axis=1)
-
-    # Rééchantillonnage
-    if sr != target_sr:
-        import librosa
-        audio = librosa.resample(audio, orig_sr=sr, target_sr=target_sr)
-        sr = target_sr
-
-    # Normalisation
+    # Même normalisation que module1
     peak = np.max(np.abs(audio))
     if peak > 0:
         audio = audio / peak * 0.95
 
-    return audio.astype(np.float32), sr
+    return audio.astype(np.float32), target_sr
 
 
 def render_audio_input(key_prefix: str = "rec") -> Optional[bytes]:
@@ -72,10 +55,9 @@ def render_audio_input(key_prefix: str = "rec") -> Optional[bytes]:
             st.success(f"✅ {uploaded.name} · {len(audio_bytes)//1024} Ko")
 
     with tab_micro:
-        # Tentative 1 : audio-recorder-streamlit (pip install audio-recorder-streamlit)
+        # Tentative 1 : audio-recorder-streamlit
         try:
             from audio_recorder_streamlit import audio_recorder
-
             st.caption("Clique sur le micro 🎤, parle en mooré, reclique pour stopper.")
             recorded = audio_recorder(
                 text="",
@@ -102,10 +84,8 @@ def render_audio_input(key_prefix: str = "rec") -> Optional[bytes]:
                     st.success(f"✅ Enregistrement capturé · {len(audio_bytes)//1024} Ko")
             except AttributeError:
                 st.warning(
-                    "`audio-recorder-streamlit` non trouvé et Streamlit < 1.32 détecté.\n\n"
                     "Installe le composant micro :\n"
-                    "```\npip install audio-recorder-streamlit\n```\n"
-                    "Ou utilise l'onglet **📁 Uploader un fichier** à la place."
+                    "```\npip install audio-recorder-streamlit\n```"
                 )
 
     return audio_bytes
