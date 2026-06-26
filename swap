@@ -1,1 +1,218 @@
 
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets> cd ..
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon> pip install soundfile
+WARNING: Ignoring invalid distribution ~ip (C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages)
+Collecting soundfile
+  Downloading soundfile-0.14.0-py2.py3-none-win_amd64.whl.metadata (18 kB)
+Requirement already satisfied: cffi>=1.0 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from soundfile) (2.0.0)
+Requirement already satisfied: numpy in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from soundfile) (2.4.1)
+Requirement already satisfied: typing-extensions in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from soundfile) (4.15.0)
+Requirement already satisfied: pycparser in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from cffi>=1.0->soundfile) (3.0)
+Downloading soundfile-0.14.0-py2.py3-none-win_amd64.whl (1.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.0/1.0 MB 539.9 kB/s  0:00:01
+WARNING: Ignoring invalid distribution ~ip (C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages)
+Installing collected packages: soundfile
+WARNING: Ignoring invalid distribution ~ip (C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages)
+Successfully installed soundfile-0.14.0
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon> python extract_dataset.py --file "full-00000-of-00001.parquet" --both-audios
+C:\Users\HP\AppData\Local\Programs\Python\Python314\python.exe: can't open file 'C:\\Users\\HP\\OneDrive\\Documents\\citadel_sm_hackathon\\extract_dataset.py': [Errno 2] No such file or directory
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon> cd datasets
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets> python extract_dataset.py --file "full-00000-of-00001.parquet" --both-audios
+✓ soundfile disponible → conversion FLAC→WAV activée
+
+Dataset : 1159 lignes
+Extraction vers ./audios_moore//
+
+  100/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  200/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  300/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  400/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  500/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  600/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  700/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  800/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  900/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  1000/1159 extraits (ignorés durée: 0, erreurs: 0)...
+  1100/1159 extraits (ignorés durée: 0, erreurs: 0)...
+
+═══════════════════════════════════════════════════════
+  EXTRACTION TERMINÉE
+═══════════════════════════════════════════════════════
+  Fichiers mooré extraits : 1159
+  Ignorés (durée)         : 0
+  Erreurs                 : 0
+  TSV produit             : ./transcriptions.tsv
+  Format audio            : .wav
+═══════════════════════════════════════════════════════
+
+ÉTAPE SUIVANTE — colle cette commande :
+
+  python module1_ingestion_v2.py \
+    --parallel \
+    --input ./audios_moore/ \
+    --text-file ./transcriptions.tsv \
+    --col-moore 1 \
+    --col-french 2 \
+    --out corpus/segments \
+    --db corpus/metadata.db \
+    --json corpus/segments.json
+    --db corpus/metadata.db \
+    --json corpus/segments.json
+    --json corpus/segments.json
+
+
+── Aperçu TSV (3 premières lignes) ──
+  fichier : segment0_moore.wav
+  mooré   : Baag ka wãbd gãngãogẽ n le yaas n ges reem ye....
+  mooré   : Baag ka wãbd gãngãogẽ n le yaas n ges reem ye....
+  français: Un chien n’ose pas attendre la suite de la danse après avoir...
+
+  fichier : segment2_moore.wav
+  fichier : segment2_moore.wav
+  mooré   : Baag ka wãbd gãngãogẽ n le yaas n ges reem ye....
+  français: Un chien n’ose pas attendre la suite de la danse après avoir...
+  français: Un chien n’ose pas attendre la suite de la danse après avoir...
+
+
+  fichier : segment0_moore.wav
+  mooré   : M kẽnda m na paam noaag yiri, m ka kẽnd a noos waoog yir ye ...
+  fichier : segment0_moore.wav
+  mooré   : M kẽnda m na paam noaag yiri, m ka kẽnd a noos waoog yir ye ...
+  mooré   : M kẽnda m na paam noaag yiri, m ka kẽnd a noos waoog yir ye ...
+  français: M ieux vaut se rendre chez celui auprès de qui, on est sûr d...
+
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets> cd ..
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon> python module1_ingestion_v2.py `
+>>   --parallel `
+>>   --input ./audios_moore/ `
+>>   --text-file ./transcriptions.tsv `
+>>   --col-moore 1 `
+>>   --col-french 2 `
+>>   --out corpus/segments `
+>>   --db corpus/metadata.db `
+>>   --json corpus/segments.json
+C:\Users\HP\AppData\Local\Programs\Python\Python314\python.exe: can't open file 'C:\\Users\\HP\\OneDrive\\Documents\\citadel_sm_hackathon\\module1_ingestion_v2.py': [Errno 2] No such file or directory
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon> cd datasets
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets> python module1_ingestion_v2.py `
+>>   --parallel `
+>>   --input ./audios_moore/ `
+>>   --text-file ./transcriptions.tsv `
+>>   --col-moore 1 `
+>>   --col-french 2 `
+>>   --out corpus/segments `
+>>   --db corpus/metadata.db `
+>>   --json corpus/segments.json
+Traceback (most recent call last):
+  File "C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets\module1_ingestion_v2.py", line 27, in <module>
+    import librosa
+ModuleNotFoundError: No module named 'librosa'
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets> python module1_ingestion_v2.py `                                     
+>>   --parallel `
+>>   --input ./audios_moore/ `
+>>   --text-file ./transcriptions.tsv `
+>>   --col-moore 1 `
+>>   --col-french 2 `
+>>   --out corpus/segments `
+>>   --db corpus/metadata.db `
+>>   --json corpus/segments.json
+Traceback (most recent call last):
+  File "C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets\module1_ingestion_v2.py", line 27, in <module>
+    import librosa
+ModuleNotFoundError: No module named 'librosa'
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets> pip install librosa
+WARNING: Ignoring invalid distribution ~ip (C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages)
+Collecting librosa
+  Downloading librosa-0.11.0-py3-none-any.whl.metadata (8.7 kB)
+Collecting audioread>=2.1.9 (from librosa)
+  Downloading audioread-3.1.0-py3-none-any.whl.metadata (9.0 kB)
+Collecting numba>=0.51.0 (from librosa)
+  Downloading numba-0.65.1-cp314-cp314-win_amd64.whl.metadata (3.0 kB)
+Requirement already satisfied: numpy>=1.22.3 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from librosa) (2.4.1)
+Requirement already satisfied: scipy>=1.6.0 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from librosa) (1.17.1)
+Requirement already satisfied: scikit-learn>=1.1.0 in C:\Users\HP\AppData\Roaming\Python\Python314\site-packages (from librosa) (1.8.0)
+Requirement already satisfied: joblib>=1.0 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from librosa) (1.5.3)
+Requirement already satisfied: decorator>=4.3.0 in C:\Users\HP\AppData\Roaming\Python\Python314\site-packages (from librosa) (5.2.1)
+Requirement already satisfied: soundfile>=0.12.1 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from librosa) (0.14.0)
+Collecting pooch>=1.1 (from librosa)
+  Downloading pooch-1.9.0-py3-none-any.whl.metadata (10 kB)
+Collecting soxr>=0.3.2 (from librosa)
+  Downloading soxr-1.1.0-cp312-abi3-win_amd64.whl.metadata (5.8 kB)
+Requirement already satisfied: typing_extensions>=4.1.1 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from librosa) (4.15.0)
+Collecting lazy_loader>=0.1 (from librosa)
+  Downloading lazy_loader-0.5-py3-none-any.whl.metadata (5.9 kB)
+Requirement already satisfied: msgpack>=1.0 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from librosa) (1.1.2)
+Collecting standard-aifc (from librosa)
+  Downloading standard_aifc-3.13.0-py3-none-any.whl.metadata (969 bytes)
+Collecting standard-sunau (from librosa)
+  Downloading standard_sunau-3.13.0-py3-none-any.whl.metadata (914 bytes)
+Requirement already satisfied: packaging in C:\Users\HP\AppData\Roaming\Python\Python314\site-packages (from lazy_loader>=0.1->librosa) (25.0)
+Collecting llvmlite<0.48,>=0.47.0dev0 (from numba>=0.51.0->librosa)
+  Downloading llvmlite-0.47.0-cp314-cp314-win_amd64.whl.metadata (5.1 kB)
+Requirement already satisfied: platformdirs>=2.5.0 in C:\Users\HP\AppData\Roaming\Python\Python314\site-packages (from pooch>=1.1->librosa) (4.5.0)
+Requirement already satisfied: requests>=2.19.0 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from pooch>=1.1->librosa) (2.34.2)
+Requirement already satisfied: charset_normalizer<4,>=2 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from requests>=2.19.0->pooch>=1.1->librosa) (3.4.7)
+Requirement already satisfied: idna<4,>=2.5 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from requests>=2.19.0->pooch>=1.1->librosa) (3.15)
+Requirement already satisfied: urllib3<3,>=1.26 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from requests>=2.19.0->pooch>=1.1->librosa) (2.7.0)
+Requirement already satisfied: certifi>=2023.5.7 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from requests>=2.19.0->pooch>=1.1->librosa) (2026.4.22)
+Requirement already satisfied: threadpoolctl>=3.2.0 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from scikit-learn>=1.1.0->librosa) (3.6.0)
+Requirement already satisfied: cffi>=1.0 in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from soundfile>=0.12.1->librosa) (2.0.0)
+Requirement already satisfied: pycparser in C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages (from cffi>=1.0->soundfile>=0.12.1->librosa) (3.0)
+Collecting standard-chunk (from standard-aifc->librosa)
+  Downloading standard_chunk-3.13.0-py3-none-any.whl.metadata (860 bytes)
+Collecting audioop-lts (from standard-aifc->librosa)
+  Downloading audioop_lts-0.2.2-cp313-abi3-win_amd64.whl.metadata (2.0 kB)
+Downloading librosa-0.11.0-py3-none-any.whl (260 kB)
+Downloading audioread-3.1.0-py3-none-any.whl (23 kB)
+Downloading lazy_loader-0.5-py3-none-any.whl (8.0 kB)
+Downloading numba-0.65.1-cp314-cp314-win_amd64.whl (2.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.8/2.8 MB 113.3 kB/s  0:00:26
+Downloading llvmlite-0.47.0-cp314-cp314-win_amd64.whl (39.2 MB)
+   ━━━━━━━━━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━ 18.1/39.2 MB 38.4 kB/s eta 0:09:09
+WARNING: Connection timed out while downloading.
+WARNING: Attempting to resume incomplete download (18.1 MB/39.2 MB, attempt 1)
+Resuming download llvmlite-0.47.0-cp314-cp314-win_amd64.whl (18.1 MB/39.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 39.2/39.2 MB 119.3 kB/s  0:04:23
+Downloading pooch-1.9.0-py3-none-any.whl (67 kB)
+Downloading soxr-1.1.0-cp312-abi3-win_amd64.whl (174 kB)
+Downloading standard_aifc-3.13.0-py3-none-any.whl (10 kB)
+Downloading audioop_lts-0.2.2-cp313-abi3-win_amd64.whl (30 kB)
+Downloading standard_chunk-3.13.0-py3-none-any.whl (4.9 kB)
+Downloading standard_sunau-3.13.0-py3-none-any.whl (7.4 kB)
+WARNING: Ignoring invalid distribution ~ip (C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages)
+Installing collected packages: standard-chunk, soxr, llvmlite, lazy_loader, audioop-lts, standard-sunau, standard-aifc, pooch, numba, audioread, librosa
+WARNING: Ignoring invalid distribution ~ip (C:\Users\HP\AppData\Local\Programs\Python\Python314\Lib\site-packages)                                          
+Successfully installed audioop-lts-0.2.2 audioread-3.1.0 lazy_loader-0.5 librosa-0.11.0 llvmlite-0.47.0 numba-0.65.1 pooch-1.9.0 soxr-1.1.0 standard-aifc-3.13.0 standard-chunk-3.13.0 standard-sunau-3.13.0
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets> python module1_ingestion_v2.py `
+>>   --parallel `
+>>   --input ./audios_moore/ `
+>>   --text-file ./transcriptions.tsv `
+>>   --col-moore 1 `
+>>   --col-french 2 `
+>>   --out corpus/segments `
+>>   --db corpus/metadata.db `
+>>   --json corpus/segments.json
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets> python module1_ingestion_v2.py `
+>>   --parallel `
+>>   --input ./audios_moore/ `
+>>   --text-file ./transcriptions.tsv `
+>>   --col-moore 1 `
+>>   --col-french 2 `
+>>   --out corpus/segments `
+>>   --db corpus/metadata.db `
+>>   --json corpus/segments.json
+[M1-PARALLEL] 1159 lignes à ingérer depuis ./transcriptions.tsv
+[M1-PARALLEL] 100/1159 traités (0 ignorés)...
+[M1-PARALLEL] 200/1159 traités (0 ignorés)...
+[M1-PARALLEL] 300/1159 traités (0 ignorés)...
+[M1-PARALLEL] 400/1159 traités (0 ignorés)...
+[M1-PARALLEL] 500/1159 traités (0 ignorés)...
+[M1-PARALLEL] 600/1159 traités (0 ignorés)...
+[M1-PARALLEL] 700/1159 traités (0 ignorés)...
+[M1-PARALLEL] 800/1159 traités (0 ignorés)...
+[M1-PARALLEL] 900/1159 traités (0 ignorés)...
+[M1-PARALLEL] 1000/1159 traités (0 ignorés)...
+[M1-PARALLEL] 1100/1159 traités (0 ignorés)...
+[M1-PARALLEL] ✓ 1159 segments ingérés, 0 ignorés
+
+[M1] ✓ 1159 segments produits → corpus/segments.json
+PS C:\Users\HP\OneDrive\Documents\citadel_sm_hackathon\datasets> 
