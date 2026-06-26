@@ -1,8 +1,16 @@
 """
-MODULE 6 — Interface Streamlit
-================================
-Interface web locale (http://localhost:8501) pour interagir avec le système.
-100% souverain : aucune donnée audio ne quitte la machine.
+INTERFACE STREAMLIT — CITADEL 2026  (v2 — recherche corrigée)
+==============================================================
+Correction principale : la recherche utilise LaBSE sur les TEXTES stockés
+en base (transcription mooré + traduction française), pas FAISS sur les
+embeddings Whisper. Les deux espaces vectoriels sont ainsi cohérents.
+
+Architecture de recherche v2 :
+  Requête texte (FR ou mooré)
+      ↓ LaBSE embed
+  Comparaison cosinus contre LaBSE embeddings des transcriptions en cache
+      ↓ top-k
+  Résultats avec audio + scores criticité
 
 Lancement : streamlit run app.py
 """
@@ -10,422 +18,368 @@ Lancement : streamlit run app.py
 import json
 import os
 import sqlite3
-import tempfile
-from pathlib import Path
 from typing import List, Dict, Optional
 
 import numpy as np
 import streamlit as st
 
-# ─── Configuration ─────────────────────────────────────────────────────────────
+# ── Config ────────────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Audio Sémantique Souverain",
+    page_title="CITADEL 2026 — Audio Sémantique Mooré",
     page_icon="🎙️",
     layout="wide",
 )
 
-DB_PATH    = "corpus/metadata.db"
-INDEX_PATH = "index/faiss.index"
-IDS_PATH   = "index/segment_ids.json"
-SEG_JSON   = "corpus/segments.json"
-
-# ─── CSS léger ─────────────────────────────────────────────────────────────────
+DB_PATH  = "corpus/metadata.db"
+SEG_JSON = "corpus/segments.json"
+AUDIO_DIR_MOORE = "audios_moore"
 
 st.markdown("""
 <style>
-.alerte-rouge  { background:#FED7D7; border-left:4px solid #E53E3E; padding:8px 12px; border-radius:4px; }
-.alerte-orange { background:#FEEBC8; border-left:4px solid #DD6B20; padding:8px 12px; border-radius:4px; }
-.alerte-vert   { background:#C6F6D5; border-left:4px solid #38A169; padding:8px 12px; border-radius:4px; }
-.score-bar { display:inline-block; height:8px; border-radius:4px; }
-.badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:600; }
+.card-rouge  { background:#FFF5F5; border-left:4px solid #E53E3E; padding:10px 14px; border-radius:6px; margin:6px 0; }
+.card-orange { background:#FFFAF0; border-left:4px solid #DD6B20; padding:10px 14px; border-radius:6px; margin:6px 0; }
+.card-vert   { background:#F0FFF4; border-left:4px solid #38A169; padding:10px 14px; border-radius:6px; margin:6px 0; }
+.badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:700; }
+.sim-score { font-size:11px; color:#718096; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ─── Fonctions utilitaires ─────────────────────────────────────────────────────
+# ── Chargement des ressources (cachées) ───────────────────────────────────────
 
-@st.cache_resource
-def load_faiss_index():
-    """Charge l'index FAISS (mis en cache pour éviter les rechargements)."""
-    try:
-        import faiss
-        from module3_index import load_index
-        index, ids = load_index(INDEX_PATH, IDS_PATH)
-        return index, ids
-    except Exception as e:
-        return None, []
+@st.cache_resource(show_spinner="Chargement de LaBSE...")
+def load_labse():
+    from sentence_transformers import SentenceTransformer
+    return SentenceTransformer("sentence-transformers/LaBSE")
 
 
-@st.cache_resource
-def load_text_embedder():
-    """Charge LaBSE (mis en cache)."""
-    try:
-        from module2_embeddings import LaBSEEmbedder
-        return LaBSEEmbedder()
-    except Exception as e:
-        st.error(f"Impossible de charger LaBSE : {e}")
-        return None
-
-
-def get_db():
-    """Retourne une connexion SQLite (lecture seule pour l'interface)."""
-    if os.path.exists(DB_PATH):
-        return sqlite3.connect(DB_PATH, check_same_thread=False)
-    return None
-
-
-def get_all_segments():
-    """Récupère tous les segments depuis SQLite."""
-    conn = get_db()
-    if not conn:
+@st.cache_data(show_spinner="Chargement du corpus...")
+def load_corpus() -> List[Dict]:
+    """Charge tous les segments depuis SQLite avec leurs textes et scores."""
+    if not os.path.exists(DB_PATH):
         return []
+    conn = sqlite3.connect(DB_PATH)
     rows = conn.execute("""
         SELECT id, file, path, source, start_sec, end_sec, duration_sec,
-               transcription, criticite_json, created_at
-        FROM segments ORDER BY source, start_sec
+               transcription, translation_fr, criticite_json
+        FROM segments
+        ORDER BY source, start_sec
     """).fetchall()
-    results = []
+    conn.close()
+    segments = []
     for r in rows:
-        results.append({
-            "id": r[0], "file": r[1], "path": r[2], "source": r[3],
-            "start_sec": r[4], "end_sec": r[5], "duration_sec": r[6],
-            "transcription": r[7],
-            "criticite": json.loads(r[8]) if r[8] else None,
-            "created_at": r[9],
+        segments.append({
+            "id"           : r[0],
+            "file"         : r[1],
+            "path"         : r[2],
+            "source"       : r[3],
+            "start_sec"    : r[4],
+            "end_sec"      : r[5],
+            "duration_sec" : r[6],
+            "transcription": r[7] or "",
+            "translation_fr": r[8] or "",
+            "criticite"    : json.loads(r[9]) if r[9] else None,
         })
-    conn.close()
+    return segments
+
+
+@st.cache_data(show_spinner="Calcul des embeddings du corpus...")
+def compute_corpus_embeddings(texts: tuple) -> np.ndarray:
+    """
+    Encode tous les textes du corpus avec LaBSE.
+    Utilise la TRADUCTION FRANÇAISE si disponible (meilleure qualité),
+    sinon le texte mooré.
+    Mis en cache — ne se recalcule qu'une fois par session.
+    """
+    model = load_labse()
+    embeddings = model.encode(
+        list(texts),
+        batch_size=64,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+    return embeddings
+
+
+def get_search_texts(segments: List[Dict]) -> tuple:
+    """Retourne les textes à indexer : FR si dispo, sinon mooré."""
+    texts = []
+    for s in segments:
+        t = s["translation_fr"].strip() if s["translation_fr"].strip() else s["transcription"].strip()
+        texts.append(t if t else "texte non disponible")
+    return tuple(texts)  # tuple pour que st.cache_data puisse le hasher
+
+
+def search_semantic(query: str, segments: List[Dict],
+                    corpus_embs: np.ndarray, top_k: int = 5) -> List[Dict]:
+    """
+    Recherche sémantique LaBSE : requête → similarité cosinus contre corpus.
+    Compatible avec requêtes en français ET en mooré (LaBSE est multilingue).
+    """
+    model = load_labse()
+    q_emb = model.encode([query], normalize_embeddings=True)[0]
+
+    # Similarité cosinus (embeddings déjà normalisés → produit scalaire)
+    sims = corpus_embs @ q_emb
+
+    top_idx = np.argsort(sims)[::-1][:top_k]
+    results = []
+    for idx in top_idx:
+        seg = dict(segments[idx])
+        seg["score"] = float(sims[idx])
+        results.append(seg)
     return results
 
 
-def search_segments(query: str, top_k: int = 5) -> List[Dict]:
-    """Recherche sémantique dans le corpus audio."""
-    index, ids = load_faiss_index()
-    if index is None:
-        return []
-
-    embedder = load_text_embedder()
-    if embedder is None:
-        return []
-
-    from module3_index import search
-    conn = get_db()
-    if not conn:
-        return []
-
-    query_vec = embedder.embed(query)
-    results   = search(query_vec, index, ids, conn, top_k)
-    conn.close()
-    return results
+def search_by_criticite(segments: List[Dict],
+                         dimension: str, top_k: int = 10) -> List[Dict]:
+    """Filtre les segments par score de criticité sur une dimension."""
+    scored = []
+    for s in segments:
+        if s["criticite"] and dimension in s["criticite"].get("scores", {}):
+            score = s["criticite"]["scores"][dimension]
+            scored.append((score, s))
+    scored.sort(key=lambda x: -x[0])
+    return [s for _, s in scored[:top_k]]
 
 
-def niveau_badge(niveau: str) -> str:
-    colors = {"ROUGE": "#E53E3E", "ORANGE": "#DD6B20", "VERT": "#38A169"}
-    icons  = {"ROUGE": "🔴", "ORANGE": "🟠", "VERT": "🟢"}
-    c = colors.get(niveau, "#718096")
-    i = icons.get(niveau, "⚪")
+# ── Rendus ────────────────────────────────────────────────────────────────────
+
+DIM_LABELS = {
+    "urgence_sanitaire" : "🏥 Urgence sanitaire",
+    "tension_sociale"   : "⚡ Tension sociale",
+    "alerte_agricole"   : "🌾 Alerte agricole",
+    "desinformation"    : "🔍 Désinformation",
+    "detresse_individu" : "🆘 Détresse individu",
+    "sagesse_menace"    : "⚠️ Sagesse / menace",
+}
+
+DIM_COLORS = {
+    "urgence_sanitaire" : "#E53E3E",
+    "tension_sociale"   : "#DD6B20",
+    "alerte_agricole"   : "#38A169",
+    "desinformation"    : "#805AD5",
+    "detresse_individu" : "#3182CE",
+    "sagesse_menace"    : "#D69E2E",
+}
+
+NIVEAU_COLORS = {"ROUGE": "#E53E3E", "ORANGE": "#DD6B20", "VERT": "#38A169"}
+NIVEAU_ICONS  = {"ROUGE": "🔴", "ORANGE": "🟠", "VERT": "🟢"}
+
+
+def badge(niveau):
+    c = NIVEAU_COLORS.get(niveau, "#718096")
+    i = NIVEAU_ICONS.get(niveau, "⚪")
     return f'<span class="badge" style="background:{c}20;color:{c}">{i} {niveau}</span>'
 
 
-def score_bars(scores: Dict[str, float]) -> str:
-    labels = {
-        "urgence_sanitaire" : ("🏥 Sanitaire",  "#E53E3E"),
-        "tension_sociale"   : ("⚡ Sociale",    "#DD6B20"),
-        "alerte_agricole"   : ("🌾 Agricole",   "#38A169"),
-        "desinformation"    : ("🔍 Désinf.",    "#805AD5"),
-        "detresse_individu" : ("🆘 Détresse",   "#3182CE"),
-    }
+def score_bars_html(scores: Dict) -> str:
     html = ""
     for cat, val in sorted(scores.items(), key=lambda x: -x[1]):
-        label, color = labels.get(cat, (cat, "#718096"))
-        pct = int(val * 100)
+        label = DIM_LABELS.get(cat, cat)
+        color = DIM_COLORS.get(cat, "#718096")
+        # Normaliser sur 0-100% en fonction du max observé (0.3 = 100%)
+        pct = min(100, int(val / 0.30 * 100))
         html += f"""
-        <div style="margin:4px 0;display:flex;align-items:center;gap:8px;font-size:12px">
-          <span style="width:90px;color:#4A5568">{label}</span>
-          <div style="flex:1;background:#EDF2F7;border-radius:4px;height:8px">
-            <div class="score-bar" style="width:{pct}%;background:{color};"></div>
+        <div style="margin:3px 0;display:flex;align-items:center;gap:8px;font-size:12px">
+          <span style="width:120px;color:#4A5568">{label}</span>
+          <div style="flex:1;background:#EDF2F7;border-radius:4px;height:7px">
+            <div style="width:{pct}%;background:{color};height:7px;border-radius:4px"></div>
           </div>
-          <span style="width:35px;text-align:right;color:{color};font-weight:600">{pct}%</span>
+          <span style="width:40px;text-align:right;color:{color};font-weight:600">{val:.3f}</span>
         </div>"""
     return html
 
 
-def render_segment_card(seg: Dict, rank: Optional[int] = None):
-    """Affiche une carte de résultat pour un segment."""
+def render_card(seg: Dict, rank: Optional[int] = None):
     crit   = seg.get("criticite")
     niveau = crit["niveau"] if crit else "VERT"
-    score_sim = seg.get("score", None)
+    css    = f"card-{niveau.lower()}"
 
-    with st.container():
-        col1, col2 = st.columns([3, 1])
+    # Trouver le fichier audio
+    audio_path = seg.get("path", "")
+    if not os.path.exists(audio_path):
+        # Chercher dans audios_moore/
+        fname = seg.get("file", "")
+        alt = os.path.join(AUDIO_DIR_MOORE, fname)
+        audio_path = alt if os.path.exists(alt) else ""
 
-        with col1:
-            header = f"**{seg['source']}**  ·  {seg['start_sec']}s → {seg['end_sec']}s"
-            if rank:
-                header = f"#{rank} · " + header
-            if score_sim is not None:
-                header += f"  ·  similarité : **{score_sim:.2%}**"
-            st.markdown(header)
+    rank_str = f"#{rank} · " if rank else ""
+    score_str = f" · sim: **{seg['score']:.3f}**" if "score" in seg else ""
 
-            if seg.get("transcription"):
-                st.caption(f"📝 {seg['transcription']}")
-            else:
-                st.caption("_(transcription non disponible)_")
+    moore_text = seg.get("transcription", "")
+    fr_text    = seg.get("translation_fr", "")
 
-            if crit:
-                st.markdown(
-                    score_bars(crit["scores"]),
-                    unsafe_allow_html=True
-                )
+    st.markdown(f'<div class="{css}">', unsafe_allow_html=True)
 
-        with col2:
-            if crit:
-                st.markdown(niveau_badge(niveau), unsafe_allow_html=True)
+    col1, col2 = st.columns([3, 1])
 
-            # Lecteur audio
-            if seg.get("path") and os.path.exists(seg["path"]):
-                with open(seg["path"], "rb") as f:
-                    st.audio(f.read(), format="audio/wav")
-            else:
-                st.caption("_fichier audio introuvable_")
+    with col1:
+        st.markdown(f"{rank_str}**{seg['source']}** · {seg['start_sec']}s–{seg['end_sec']}s{score_str}")
+        if moore_text:
+            st.caption(f"🔤 Mooré : {moore_text}")
+        if fr_text:
+            st.caption(f"🇫🇷 FR    : {fr_text}")
+        if crit:
+            st.markdown(score_bars_html(crit["scores"]), unsafe_allow_html=True)
 
-        st.divider()
+    with col2:
+        if crit:
+            st.markdown(badge(niveau), unsafe_allow_html=True)
+        if audio_path:
+            with open(audio_path, "rb") as f:
+                st.audio(f.read(), format="audio/wav")
+        else:
+            st.caption("_audio introuvable_")
 
-
-# ─── Pipeline rapide (pour le bouton "Indexer maintenant") ─────────────────────
-
-def run_pipeline(audio_file_path: str, progress_bar):
-    """Lance le pipeline complet sur un fichier audio uploadé."""
-    import subprocess, sys
-
-    steps = [
-        ("Segmentation...",    f"python module1_ingestion.py --input {audio_file_path} --out corpus/segments"),
-        ("Embeddings...",      f"python module2_embeddings.py --json corpus/segments.json --model whisper"),
-        ("Indexation FAISS...", f"python module3_index.py --embeddings index/embeddings.npy --ids index/embeddings_ids.json"),
-        ("Scoring criticité...", f"python module5_criticite.py --json corpus/segments.json --mode zeroshot"),
-    ]
-
-    for i, (label, cmd) in enumerate(steps):
-        progress_bar.progress((i + 1) / len(steps), text=label)
-        result = subprocess.run(cmd.split(), capture_output=True, text=True)
-        if result.returncode != 0:
-            st.error(f"Erreur à l'étape {label}:\n{result.stderr}")
-            return False
-
-    progress_bar.progress(1.0, text="✓ Pipeline terminé")
-    return True
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.write("")
 
 
-# ─── Interface principale ──────────────────────────────────────────────────────
+# ── Interface principale ──────────────────────────────────────────────────────
 
 def main():
-    # ── En-tête ──
-    st.title("🎙️ Audio Sémantique Souverain")
-    st.caption(
-        "Recherche sémantique et veille critique dans les messages vocaux "
-        "en mooré, dioula et fulfuldé · 100% local · Hackathon CITADEL 2026"
-    )
+    st.title("🎙️ CITADEL 2026 — Audio Sémantique Souverain")
+    st.caption("Recherche sémantique sur corpus audio mooré · 100% local · Aucune donnée ne quitte la machine")
 
-    # ── Tabs ──
-    tab_search, tab_corpus, tab_upload, tab_about = st.tabs([
-        "🔍 Recherche", "📂 Corpus", "⬆️ Ajouter des audios", "ℹ️ À propos"
+    # Charger le corpus
+    segments = load_corpus()
+    if not segments:
+        st.error(f"Corpus introuvable ({DB_PATH}). Lance d'abord le pipeline complet.")
+        return
+
+    # Pré-calculer les embeddings du corpus (une fois par session)
+    search_texts = get_search_texts(segments)
+    with st.spinner(f"Encodage de {len(segments)} segments avec LaBSE..."):
+        corpus_embs = compute_corpus_embeddings(search_texts)
+
+    # ── Sidebar ───────────────────────────────────────────────────────────────
+    with st.sidebar:
+        st.header("📊 Corpus")
+        st.metric("Segments total", len(segments))
+        if segments[0]["criticite"]:
+            niveaux = [s["criticite"]["niveau"] for s in segments if s["criticite"]]
+            st.metric("🔴 ROUGE",  niveaux.count("ROUGE"))
+            st.metric("🟠 ORANGE", niveaux.count("ORANGE"))
+            st.metric("🟢 VERT",   niveaux.count("VERT"))
+
+        st.divider()
+        st.header("⚙️ Paramètres")
+        top_k = st.slider("Nombre de résultats", 3, 20, 5)
+
+        st.divider()
+        st.caption("💡 **Astuce** : la recherche est multilingue — tape en français ou en mooré, LaBSE comprend les deux.")
+
+    # ── Tabs ─────────────────────────────────────────────────────────────────
+    tab1, tab2, tab3 = st.tabs([
+        "🔍 Recherche sémantique",
+        "🚨 Alertes criticité",
+        "📚 Corpus complet",
     ])
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # TAB 1 : Recherche sémantique
-    # ──────────────────────────────────────────────────────────────────────────
-    with tab_search:
-        st.subheader("Recherche sémantique dans le corpus audio")
+    # ── Tab 1 : Recherche ─────────────────────────────────────────────────────
+    with tab1:
+        st.subheader("Recherche sémantique multilingue")
+        st.info(
+            "Tape une requête en **français** ou en **mooré** — LaBSE retrouve les segments "
+            "sémantiquement proches, même si les mots exacts ne correspondent pas.",
+            icon="ℹ️"
+        )
 
-        col_q, col_k = st.columns([4, 1])
+        col_q, col_btn = st.columns([4, 1])
         with col_q:
             query = st.text_input(
                 "Requête",
-                placeholder="Ex : signalement de maladie dans le village · yãmb yaa fo sẽed zĩnga",
+                placeholder="Ex: maladie village  /  danger animal  /  ned sãame  /  conflict route",
                 label_visibility="collapsed"
             )
-        with col_k:
-            top_k = st.selectbox("Résultats", [3, 5, 10], index=1, label_visibility="collapsed")
+        with col_btn:
+            search_btn = st.button("🔍 Chercher", use_container_width=True)
 
-        # Filtres criticité
-        with st.expander("🎛 Filtres"):
-            filtre_niveau = st.multiselect(
-                "Niveau d'alerte",
-                ["ROUGE", "ORANGE", "VERT"],
-                default=["ROUGE", "ORANGE", "VERT"]
-            )
-            filtre_dim = st.multiselect(
-                "Dimension de criticité",
-                ["urgence_sanitaire", "tension_sociale", "alerte_agricole",
-                 "desinformation", "detresse_individu"],
-                default=[]
-            )
+        # Exemples cliquables
+        st.caption("Exemples :")
+        ex_cols = st.columns(5)
+        examples = [
+            "maladie urgence",
+            "danger animal scorpion",
+            "conflict route village",
+            "mensonge rumeur",
+            "ned sãame pãnga",
+        ]
+        for i, ex in enumerate(examples):
+            if ex_cols[i].button(ex, key=f"ex_{i}", use_container_width=True):
+                query = ex
+                search_btn = True
 
-        if st.button("🔍 Rechercher", type="primary", disabled=not query):
-            index, ids = load_faiss_index()
-            if index is None:
-                st.warning("⚠️ Index FAISS non trouvé. Ajoutez des audios et lancez le pipeline d'abord.")
+        if query and (search_btn or query):
+            with st.spinner(f"Recherche de '{query}'..."):
+                results = search_semantic(query, segments, corpus_embs, top_k)
+
+            if results:
+                st.success(f"Top {len(results)} résultats pour **{query}**")
+                for i, seg in enumerate(results, 1):
+                    render_card(seg, rank=i)
             else:
-                with st.spinner("Recherche en cours..."):
-                    results = search_segments(query, top_k)
+                st.warning("Aucun résultat trouvé.")
 
-                # Appliquer les filtres
-                if filtre_niveau:
-                    results = [r for r in results
-                               if (r.get("criticite") or {}).get("niveau", "VERT") in filtre_niveau]
-                if filtre_dim:
-                    results = [r for r in results
-                               if any(d in (r.get("criticite") or {}).get("alertes", [])
-                                      for d in filtre_dim)]
+    # ── Tab 2 : Alertes ───────────────────────────────────────────────────────
+    with tab2:
+        st.subheader("Segments les plus critiques par dimension")
 
-                if not results:
-                    st.info("Aucun résultat trouvé.")
-                else:
-                    st.success(f"{len(results)} segment(s) trouvé(s)")
-                    for r in results:
-                        render_segment_card(r, rank=r.get("rank"))
+        dim = st.selectbox(
+            "Dimension de criticité",
+            options=list(DIM_LABELS.keys()),
+            format_func=lambda x: DIM_LABELS[x]
+        )
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # TAB 2 : Vue corpus
-    # ──────────────────────────────────────────────────────────────────────────
-    with tab_corpus:
-        st.subheader("Corpus indexé")
-        segments = get_all_segments()
-
-        if not segments:
-            st.info("Corpus vide. Ajoutez des fichiers audio dans l'onglet '⬆️ Ajouter des audios'.")
+        results_crit = search_by_criticite(segments, dim, top_k)
+        if results_crit:
+            st.write(f"**Top {len(results_crit)} segments — {DIM_LABELS[dim]}**")
+            for i, seg in enumerate(results_crit, 1):
+                render_card(seg, rank=i)
         else:
-            # Statistiques
-            n_rouge  = sum(1 for s in segments if (s["criticite"] or {}).get("niveau") == "ROUGE")
-            n_orange = sum(1 for s in segments if (s["criticite"] or {}).get("niveau") == "ORANGE")
-            n_vert   = len(segments) - n_rouge - n_orange
-            total_min = sum(s["duration_sec"] for s in segments) / 60
+            st.info("Aucun segment scoré pour cette dimension.")
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Segments", len(segments))
-            c2.metric("Durée totale", f"{total_min:.1f} min")
-            c3.metric("🔴 Alertes", n_rouge + n_orange)
-            c4.metric("Sources", len(set(s["source"] for s in segments)))
+        # Vue globale
+        st.divider()
+        st.subheader("Distribution des niveaux d'alerte")
+        if segments[0]["criticite"]:
+            niveaux = [s["criticite"]["niveau"] for s in segments if s["criticite"]]
+            rouge  = niveaux.count("ROUGE")
+            orange = niveaux.count("ORANGE")
+            vert   = niveaux.count("VERT")
+            total  = len(niveaux)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("🔴 ROUGE",  rouge,  f"{rouge/total:.1%}")
+            c2.metric("🟠 ORANGE", orange, f"{orange/total:.1%}")
+            c3.metric("🟢 VERT",   vert,   f"{vert/total:.1%}")
 
-            # Filtre niveau
-            niveau_filter = st.radio(
-                "Filtrer",
-                ["Tous", "🔴 ROUGE", "🟠 ORANGE", "🟢 VERT"],
-                horizontal=True
-            )
-            filtered = segments
-            if "ROUGE" in niveau_filter:
-                filtered = [s for s in segments if (s["criticite"] or {}).get("niveau") == "ROUGE"]
-            elif "ORANGE" in niveau_filter:
-                filtered = [s for s in segments if (s["criticite"] or {}).get("niveau") == "ORANGE"]
-            elif "VERT" in niveau_filter:
-                filtered = [s for s in segments if (s["criticite"] or {}).get("niveau") == "VERT"]
+    # ── Tab 3 : Corpus ────────────────────────────────────────────────────────
+    with tab3:
+        st.subheader(f"Corpus complet — {len(segments)} segments")
 
-            for seg in filtered[:50]:  # Limiter l'affichage à 50
-                render_segment_card(seg)
+        col_f1, col_f2 = st.columns(2)
+        filtre_niveau = col_f1.selectbox("Filtrer par niveau", ["Tous", "ROUGE", "ORANGE", "VERT"])
+        filtre_texte  = col_f2.text_input("Filtrer par texte (mooré ou FR)", "")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # TAB 3 : Upload et pipeline
-    # ──────────────────────────────────────────────────────────────────────────
-    with tab_upload:
-        st.subheader("Ajouter des messages vocaux au corpus")
+        filtered = segments
+        if filtre_niveau != "Tous":
+            filtered = [s for s in filtered
+                        if s.get("criticite") and s["criticite"]["niveau"] == filtre_niveau]
+        if filtre_texte:
+            ft = filtre_texte.lower()
+            filtered = [s for s in filtered
+                        if ft in (s["transcription"] or "").lower()
+                        or ft in (s["translation_fr"] or "").lower()]
 
-        st.info(
-            "**Consentement requis** : les fichiers audio doivent être enregistrés "
-            "avec l'accord informé des locuteurs, ou provenir d'espaces publics "
-            "(émissions radio, groupes communautaires publics)."
-        )
+        st.caption(f"{len(filtered)} segments affichés")
 
-        uploaded = st.file_uploader(
-            "Déposer des fichiers audio (WAV, MP3, OGG, M4A)",
-            type=["wav", "mp3", "ogg", "m4a", "flac"],
-            accept_multiple_files=True
-        )
+        for seg in filtered[:50]:  # limiter à 50 pour la perf
+            render_card(seg)
 
-        modele = st.radio(
-            "Modèle d'embeddings",
-            ["whisper (recommandé, ~240 MB)", "wav2vec2-XLSR (~1.2 GB)"],
-            horizontal=True
-        )
-        model_key = "whisper" if "whisper" in modele else "wav2vec2"
-
-        if uploaded and st.button("▶️ Lancer le pipeline", type="primary"):
-            os.makedirs("corpus/segments", exist_ok=True)
-
-            prog = st.progress(0, text="Préparation...")
-
-            # Sauvegarder les fichiers uploadés
-            for f in uploaded:
-                save_path = f"corpus/{f.name}"
-                with open(save_path, "wb") as out:
-                    out.write(f.getbuffer())
-
-            # Lancer le pipeline
-            from module1_ingestion import process_directory, init_db
-            conn = init_db(DB_PATH)
-            metas = process_directory("corpus", "corpus/segments", conn)
-            conn.close()
-
-            with open(SEG_JSON, "w") as f:
-                json.dump(metas, f, ensure_ascii=False, indent=2)
-
-            prog.progress(0.4, text=f"✓ {len(metas)} segments créés")
-
-            # Embeddings
-            from module2_embeddings import compute_embeddings
-            compute_embeddings(SEG_JSON, model_key, DB_PATH, "index/embeddings.npy")
-            prog.progress(0.7, text="✓ Embeddings calculés")
-
-            # Index FAISS
-            from module3_index import build_index
-            import numpy as np
-            embs = np.load("index/embeddings.npy")
-            with open("index/embeddings_ids.json") as f:
-                ids = json.load(f)
-            build_index(embs, ids, INDEX_PATH, IDS_PATH)
-            prog.progress(0.9, text="✓ Index FAISS construit")
-
-            # Scoring criticité
-            from module5_criticite import score_corpus
-            score_corpus(SEG_JSON, "zeroshot", DB_PATH)
-            prog.progress(1.0, text="✓ Pipeline complet !")
-
-            st.success(f"🎉 {len(metas)} segments indexés et scorés !")
-            st.balloons()
-
-            # Invalider le cache
-            st.cache_resource.clear()
-            st.rerun()
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # TAB 4 : À propos
-    # ──────────────────────────────────────────────────────────────────────────
-    with tab_about:
-        st.subheader("Audio Sémantique Souverain")
-        st.markdown("""
-**Hackathon IA CITADEL Summer School 2026** · Défi "Audio Sémantique Souverain"
-
-### Architecture technique
-| Composante | Technologie | Raison |
-|---|---|---|
-| Segmentation | librosa + VAD énergie | CPU frugal, zéro dépendance |
-| Embeddings audio | Whisper-small encoder | Multilingue, open weights |
-| Embeddings texte | LaBSE | 109 langues, CPU-friendly |
-| Index vectoriel | FAISS IndexFlatIP | Open source, local |
-| Scoring criticité | Zero-shot embeddings | Aucun entraînement requis |
-| Interface | Streamlit | Déployable en <2h |
-
-### Cadre éthique VERTUS
-- ✅ **Consentement** : aucune collecte de messages privés sans accord
-- ✅ **Souveraineté** : zéro donnée envoyée à des APIs externes
-- ✅ **Transparence** : scores explicables, contestables et corrigeables
-- ✅ **Non-discrimination** : pas de biais systématiques selon genre/région/dialecte
-
-### Ressources utiles
-- Dataset mooré-français : [HuggingFace sawadogosalif/MooreFRCollections](https://huggingface.co/datasets/sawadogosalif/MooreFRCollections)
-- Dioula dans Mozilla Common Voice 19
-- Code source : modules 1-5 + app.py (ce fichier)
-        """)
+        if len(filtered) > 50:
+            st.info(f"Affichage limité à 50 segments. Utilise le filtre pour affiner.")
 
 
 if __name__ == "__main__":
